@@ -1,43 +1,50 @@
 use std::fs::File;
 use std::io::Write;
-use tracing::Event;
-use tracing_subscriber::{layer::{Layer, Context}, Registry};
+use tracing::{Event, field::{Field, Visit}};
+use tracing_subscriber::{layer::Context, Registry, Layer};
 
 struct CustomLogLayer;
 
-impl<S> Layer<S> for CustomLogLayer
+impl<S> tracing_subscriber::Layer<S> for CustomLogLayer
 where
     S: tracing::Subscriber,
 {
-    fn on_event(&self, event: &Event, _: Context<'_, S>) {
-        // 在这里根据逻辑条件判断，选择将日志写入不同的文件
-        let user_id = extract_user_id_from_event(event);
+    fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+        let mut visitor = CustomVisitor{ user_id: None };
+        event.record(&mut visitor);
 
-        // 假设你有一个函数根据日志事件提取用户ID的逻辑
-        match user_id {
-            Some(id) => {
-                let file_path = format!("logs/user_{}.log", id);
-                if let Ok(mut file) = File::create(file_path) {
-                    writeln!(file, "{:?}", event).ok();
-                }
+        let user_id = visitor.user_id;
+
+        // Your existing logic to write logs to different files based on user_id...
+        // ...
+
+        // For example, let's print the user_id to the console for demonstration:
+        if let Some(id) = user_id {
+            println!("User ID: {}", id);
+            let file_path = format!("logs/user_{}.log", id);
+            if let Ok(mut file) = File::create(file_path) {
+                writeln!(file, "{:?}", event).ok();
             }
-            None => {
-                // 处理没有用户ID的情况，可能是默认文件
-                let file_path = "logs/default.log";
-                if let Ok(mut file) = File::create(file_path) {
-                    writeln!(file, "{:?}", event).ok();
-                }
-            }
+        } else {
+            println!("No user ID found in the log event");
         }
     }
 }
 
-// 这是一个示例函数，你需要根据你的日志结构提取用户ID
-fn extract_user_id_from_event(_event: &Event<'_>) -> Option<u64> {
-    // 实现提取用户ID的逻辑
-    // 如果日志中包含用户ID，返回Some(id)，否则返回None
-    // 这里只是一个示例，请根据实际情况修改
-    Some(123)
+struct CustomVisitor {
+    user_id: Option<i64>,
+}
+
+impl Visit for CustomVisitor {
+    fn record_i64(&mut self, field: &Field, value: i64) {
+        if field.name() == "user_id" {
+            self.user_id = Some(value);
+        }
+    }
+
+    fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {
+        println!("record_debug");
+    }
 }
 
 fn main() {
@@ -49,7 +56,8 @@ fn main() {
 
     // 初始化 tracing
     tracing::subscriber::set_global_default(custom_layer).unwrap();
+    // let a = 123u64;
 
-    // 这里开始记录日志
-    tracing::info!("[user:123] This log message will be routed to a specific file based on logic");
+    // Example log event with a user_id field
+    tracing::info!(user_id = 456, "This log message contains a user ID");
 }
